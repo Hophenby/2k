@@ -92,14 +92,14 @@ def get_video_info(video_id,driver:webdriver.Edge,proxy=None):
     return video_info
 
 
-def get_videos_info(video_ids,proxy_mode=False,proxy_host=None,proxy_port=None):
+def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
     options=EdgeOptions()
     proxy=Proxy()
     if proxy_mode:
         proxy.proxy_type=ProxyType.MANUAL
-        proxy.http_proxy=f"{proxy_host}:{proxy_port}"
+        proxy.http_proxy=f"{proxy_server}"
         #options=ChromeOptions()
-        options.add_argument("--proxy-server={}".format(f"{proxy_host}:{proxy_port}"))
+        options.add_argument("--proxy-server={}".format(f"{proxy_server}"))
     driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
     try:
 
