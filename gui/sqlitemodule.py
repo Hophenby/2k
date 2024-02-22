@@ -60,10 +60,11 @@ class ThumbnailLabel(QLabel):
             QToolTip.showText(event.globalPos(), "<img src='data:image/png;base64,{}'/>".format(base64_data))
             
 class SearchResultWidget(QWidget):
-    def __init__(self,video_info:dict):
+    def __init__(self,video_info:dict,settings=None):
         super().__init__()
 
         #self.hide()
+        self.settings = settings
 
         self.video_info = video_info
 
@@ -150,7 +151,10 @@ class SearchResultWidget(QWidget):
         """)
 
     def load_thumbnail(self):
-        image_data = requests.get(self.video_info["thumbnail_url"]+".L")
+        if self.settings is not None and self.settings.settings['proxy_enabled']:
+            image_data = requests.get(self.video_info["thumbnail_url"]+".L", proxies={"http": self.settings.settings['proxy'], "https": self.settings.settings['proxy']})
+        else:
+            image_data = requests.get(self.video_info["thumbnail_url"]+".L")
         if image_data.status_code == 200:
             self.thumbnail.loadFromData(image_data.content)
             self.thumbnail_label.setThumbnail(self.thumbnail)
@@ -169,10 +173,12 @@ class SearchResultWidget(QWidget):
         
 
 class DatabaseSearchWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self,settings=None):
         super().__init__()
         self.setWindowTitle("Database Search")
         self.setGeometry(200, 200, 1000, 500)
+
+        self.settings = settings
         
         # Create widgets
         self.search_label = QLabel("Search:")
@@ -258,13 +264,14 @@ class DatabaseSearchWindow(QMainWindow):
             tags = cursor.execute(f"""SELECT tag FROM tags WHERE video_id = "{video_info['video_id']}" """).fetchall()
             video_info["tags"]=[tag[0] for tag in tags]
             #print(video_info)
-            self.result_layout.addWidget(SearchResultWidget(video_info))
+            self.result_layout.addWidget(SearchResultWidget(video_info,self.settings))
 
         
         # Close database connection
         cursor.close()
         conn.close()
         self.search_state.setText("Finished. Found {} results".format(len(results)))
+
 if __name__ == "__main__":
     # Create the application
     app = QApplication(sys.argv)
