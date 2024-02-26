@@ -2,15 +2,16 @@ import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.proxy import Proxy, ProxyType
-from selenium.webdriver import EdgeService, EdgeOptions, ChromeService, ChromeOptions
+from selenium.webdriver import EdgeService, EdgeOptions, ChromeService, ChromeOptions, FirefoxService, FirefoxOptions
 from webdriver_manager.microsoft import EdgeChromiumDriverManager 
 from webdriver_manager.chrome import ChromeDriverManager 
+from webdriver_manager.firefox import GeckoDriverManager
 
 
 PROXY_HOST = "http://localhost:7890"
 
 
-def get_video_info(video_id,driver:webdriver.Edge,proxy=None):
+def get_video_info(video_id,driver:webdriver.Chrome,proxy=None):
     video_info={}
     try:
         #print(f"processing video {video_id}")
@@ -93,14 +94,18 @@ def get_video_info(video_id,driver:webdriver.Edge,proxy=None):
 
 
 def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
-    options=EdgeOptions()
+    #options=EdgeOptions()
+    #options=FirefoxOptions()
+    options=ChromeOptions()
     proxy=Proxy()
     if proxy_mode:
         proxy.proxy_type=ProxyType.MANUAL
         proxy.http_proxy=f"{proxy_server}"
         #options=ChromeOptions()
         options.add_argument("--proxy-server={}".format(f"{proxy_server}"))
-    driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
+    #driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
+    #driver = webdriver.Firefox(options=options,service=FirefoxService(executable_path=GeckoDriverManager().install()))
+    driver = webdriver.Chrome(options=options,service=ChromeService(executable_path=ChromeDriverManager().install()))
     try:
 
         videos_info=[]

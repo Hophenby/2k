@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtCore import QByteArray
 from qasync import QEventLoop, asyncClose, asyncSlot
-import webfetch,settings,sqlitemodule
+import webfetch,settings,videodb as videodb
 
 
 PROXY_HOST = "http://localhost"
@@ -77,7 +77,7 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self.open_settings_window)
         file_menu.addAction(settings_action)
 
-        database_menu = menubar.addMenu('database')
+        database_menu = menubar.addMenu('videos')
         database_action = QAction('open database',self)
         database_action.triggered.connect(self.open_database)
         database_menu.addAction(database_action)
@@ -93,7 +93,7 @@ class MainWindow(QMainWindow):
         print("database")
         if self.database_window is not None:
             self.database_window.close()
-        self.database_window = sqlitemodule.DatabaseSearchWindow(settings=self.pf_settings)
+        self.database_window = videodb.DatabaseSearchWindow(settings=self.pf_settings)
         self.database_window.show()
         pass
         
@@ -117,9 +117,9 @@ class MainWindow(QMainWindow):
             loop=asyncio.get_event_loop()
             info_list=await loop.run_in_executor(None,webfetch.get_videos_info,video_ids,self.pf_settings["proxy_enabled"],self.pf_settings["proxy"])
             for info in info_list:
-                self.search_result_widget = sqlitemodule.SearchResultWidget(info,self.pf_settings)
+                self.search_result_widget = videodb.SearchResultWidget(info,self.pf_settings)
                 self.scroll_widget_layout.addWidget(self.search_result_widget)
-                sqlitemodule.insert_video_info(info,self.pf_settings["database_path"])
+                videodb.insert_video_info(info,self.pf_settings["database_path"])
                 
 
         except Exception as exc:
