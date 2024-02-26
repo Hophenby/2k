@@ -2,11 +2,11 @@ import sqlite3
 import os
 import sys
 import asyncio
-import time
+import time, datetime
 from qasync import QEventLoop, asyncClose, asyncSlot
 import threading
-from PySide6.QtCore import Qt, QTimer, QMimeData, QByteArray, QBuffer, QIODevice
-from PySide6.QtGui import QPaintEvent, QPixmap, QClipboard, QTextDocument, QDesktopServices, QPainter, QColor, QBrush
+from PySide6.QtCore import QEvent, Qt, QTimer, QMimeData, QByteArray, QBuffer, QIODevice
+from PySide6.QtGui import QMouseEvent, QPaintEvent, QPixmap, QClipboard, QTextDocument, QDesktopServices, QPainter, QColor, QBrush, QCursor
 from PySide6.QtWidgets import (
     QApplication, 
     QMainWindow, 
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QSpacerItem, 
     QSizePolicy,
     QComboBox,
+    QTextEdit,
     )
 import requests
 
@@ -40,6 +41,8 @@ def create_table(database=None):
                  (video_id text primary key, title text, thumbnail_url text, upload_year integer, upload_month integer, upload_day integer, upload_hour integer, upload_minute integer, upload_second integer, view_count integer, mylist_count integer, description text, user_name text, user_id text)''')
     c.execute('''CREATE TABLE IF NOT EXISTS tags
                  (video_id text, tag text, primary key(video_id, tag))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS memories
+                 (video_id text primary key, memory text, timestamp integer)''')
     conn.commit()
     conn.close()
 
@@ -58,6 +61,42 @@ def insert_video_info(video_info,database=None):
     conn.commit()
     conn.close()
 
+def del_video_info(video_id,database=None):
+    if database is None:
+        database = DATABASE
+    if not os.path.exists(database):
+        create_table(database)
+    conn = sqlite3.connect(database)
+    c = conn.cursor()
+    c.execute("DELETE FROM videos WHERE video_id = ?", (video_id,))
+    c.execute("DELETE FROM tags WHERE video_id = ?", (video_id,))
+    c.execute("DELETE FROM memories WHERE video_id = ?", (video_id,))
+    conn.commit()
+    conn.close()
+
+
+def add_video_memories(video_id,memories,database=None):
+    if database is None:
+        database = DATABASE
+    if not os.path.exists(database):
+        create_table(database)
+    conn = sqlite3.connect(database)
+    c = conn.cursor()
+    for memory in memories:
+        c.execute("INSERT OR REPLACE INTO memories VALUES (?, ?, ?)", (video_id, memory["memory"], memory["timestamp"]))
+    conn.commit()
+    conn.close()
+
+def del_video_memories_by_timestamp(video_id,timestamp,database=None):
+    if database is None:
+        database = DATABASE
+    if not os.path.exists(database):
+        create_table(database)
+    conn = sqlite3.connect(database)
+    c = conn.cursor()
+    c.execute("DELETE FROM memories WHERE video_id = ? AND timestamp = ?", (video_id, timestamp))
+    conn.commit()
+    conn.close()
 
 def gen_img_html(img:QPixmap):
     byte_array = QByteArray()
@@ -66,6 +105,109 @@ def gen_img_html(img:QPixmap):
     img.save(buffer, "PNG")
     base64_data = byte_array.toBase64().data().decode()
     return f"<img src='data:image/png;base64,{base64_data}'/>"
+
+class PeekMemoriesWidget(QScrollArea):
+    def __init__(self ,video_id=None,settings=None):
+        super().__init__()
+        self.video_id = video_id
+        self.database = settings.settings["database_path"]
+
+        self.memories = []
+        self.load_memories()
+        print(self.memories)
+
+        self.layout_v = QVBoxLayout()
+
+        for memory in self.memories:
+            layout_h = QHBoxLayout()
+            layout_h.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+            dt=datetime.datetime.fromtimestamp(memory["timestamp"])
+            timestamp_label = QLabel(f"[{dt.year}-{dt.month:02}-{dt.day:02} {dt.hour:02}:{dt.minute:02}:{dt.second:02}]")
+            timestamp_label.setStyleSheet("color: blue;")
+            layout_h.addWidget(timestamp_label)
+
+            memory_label = QLabel(memory["memory"])
+            memory_label.setWordWrap(True)
+            memory_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            layout_h.addWidget(memory_label)
+
+            del_button = QPushButton("Del")
+            del_button.setSizePolicy(QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Preferred)
+            del_button.setFixedWidth(25)
+            del_button.clicked.connect(lambda state=None, video_id=video_id, timestamp=memory["timestamp"]: del_video_memories_by_timestamp(video_id,timestamp,self.database))
+            layout_h.addWidget(del_button)
+
+            self.layout_v.addLayout(layout_h)
+            
+        widget=QWidget()
+        self.setWidget(widget)
+        self.setWidgetResizable(True)
+        self.setFixedHeight(200)
+        self.setFixedWidth(400)
+        widget.setLayout(self.layout_v)
+
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint|Qt.WindowType.WindowStaysOnTopHint)
+
+    def load_memories(self):
+        conn = sqlite3.connect(self.database)
+        c = conn.cursor()
+        self.memories = c.execute("SELECT * FROM memories WHERE video_id = ?", (self.video_id,)).fetchall()
+        self.memories = sorted(self.memories, key=lambda x: x[2])
+        self.memories = [{"memory":memory[1], "timestamp":memory[2]} for memory in self.memories]
+        conn.close()
+
+    def mouseReleaseEvent(self, arg__1: QMouseEvent) -> None:
+        self.close()
+        return super().mouseReleaseEvent(arg__1)
+    
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.FocusOut or event.type() == QEvent.Type.WindowDeactivate:
+            self.close()
+        return super().changeEvent(event)
+
+class AddMemoryWidget(QWidget):
+    def __init__(self,video_id,settings=None):
+        super().__init__()
+
+        self.video_id = video_id
+        self.database = settings.settings["database_path"]
+
+        self.memory_input = QTextEdit()
+        self.memory_input.setPlaceholderText("Memory")
+        self.add_memory_button = QPushButton("Submit")
+        self.add_memory_button.clicked.connect(self.add_memory)
+
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.close)
+
+        self.layout_v = QVBoxLayout()
+        self.layout_v.addWidget(self.memory_input)
+
+        layout_h = QHBoxLayout()
+        layout_h.addWidget(self.cancel_button)
+        layout_h.addWidget(self.add_memory_button)
+        self.layout_v.addLayout(layout_h)
+
+        self.setLayout(self.layout_v)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint|Qt.WindowType.WindowStaysOnTopHint)
+
+    def add_memory(self):
+        memory = self.memory_input.toPlainText()
+        timestamp = int(datetime.datetime.now().timestamp())
+        conn = sqlite3.connect(self.database)
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO memories VALUES (?, ?, ?)", (self.video_id, memory, timestamp))
+        conn.commit()
+        conn.close()
+        self.close()
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.FocusOut or event.type() == QEvent.Type.WindowDeactivate:
+            self.close()
+        return super().changeEvent(event)
+
+
 
 class ThumbnailLabel(QLabel):
     def __init__(self, parent=None):
@@ -135,8 +277,19 @@ class SearchResultWidget(QWidget):
         self.copy_info_button = QPushButton("Copy Info")
         self.copy_info_button.clicked.connect(self.copy_info)
 
-        self.open_website_button = QPushButton("Open Website")
-        self.open_website_button.clicked.connect(self.open_website)
+        self.open_website_button = QPushButton("Open Video Page")
+        self.open_website_button.clicked.connect(lambda:QDesktopServices.openUrl(f"https://www.nicovideo.jp/watch/{video_info['video_id']}"))
+
+        self.open_uploader_button = QPushButton("Open Uploader Page")
+        self.open_uploader_button.clicked.connect(lambda:QDesktopServices.openUrl(f"https://www.nicovideo.jp/user/{video_info['user_id']}"))
+
+        self.peeks_memories_button = QPushButton("Peek Memories")
+        self.peeks_memories_button.clicked.connect(self.peek_memories)
+        self.peek_memories_widget = None
+
+        self.add_memory_button = QPushButton("Add Memory")
+        self.add_memory_button.clicked.connect(self.add_memory)
+        self.add_memory_widget = None
 
         thumbnail_layout = QVBoxLayout()
         thumbnail_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -154,16 +307,25 @@ class SearchResultWidget(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         layout.addLayout(thumbnail_layout)
         layout.addLayout(sublayout)
-        layout.addWidget(self.copy_info_button)
-        layout.addWidget(self.open_website_button)
+        
+        button_layout = QVBoxLayout()
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        button_layout.addWidget(self.copy_info_button)
+        button_layout.addWidget(self.open_website_button)
+        button_layout.addWidget(self.open_uploader_button)
+        button_layout.addWidget(self.peeks_memories_button)
+        button_layout.addWidget(self.add_memory_button)
+        button_layout.addSpacerItem(QSpacerItem(24,0,QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Expanding))
 
-        del_layout = QVBoxLayout()
+        del_layout = QHBoxLayout()
         del_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
-        del_layout.addSpacerItem(QSpacerItem(24,0,QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Expanding))
-        del_button = QPushButton("Delete")
+        del_button = QPushButton("Del")
+        del_button.setSizePolicy(QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Preferred)
+        del_button.setFixedWidth(25)
         del_button.clicked.connect(self.del_from_db)
         del_layout.addWidget(del_button)
-        layout.addLayout(del_layout)
+        button_layout.addLayout(del_layout)
+        layout.addLayout(button_layout)
 
         self.setLayout(layout)
 
@@ -217,22 +379,32 @@ class SearchResultWidget(QWidget):
 
         QTimer.singleShot(100,lambda: clipboard.setMimeData(mime_data, mode=QClipboard.Mode.Clipboard))
 
-    def open_website(self):
-        QDesktopServices.openUrl(f"https://www.nicovideo.jp/watch/{self.video_info['video_id']}")
-
-        pass
+    
 
     def del_from_db(self):
         check = QMessageBox.question(self, "Delete", "Are you sure you want to delete this video from the database?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if check == QMessageBox.StandardButton.Yes:
             database=self.settings.settings["database_path"]
-            conn = sqlite3.connect(database)
-            c = conn.cursor()
-            c.execute("DELETE FROM videos WHERE video_id = ?", (self.video_info["video_id"],))
-            c.execute("DELETE FROM tags WHERE video_id = ?", (self.video_info["video_id"],))
-            conn.commit()
-            conn.close()
+            del_video_info(self.video_info["video_id"],database)
             self.close()
+
+    def peek_memories(self):
+        if self.peek_memories_widget is not None:
+            self.peek_memories_widget.close()
+        self.peek_memories_widget = PeekMemoriesWidget(self.video_info["video_id"],self.settings)
+        mouse_pos = QCursor.pos()
+        self.peek_memories_widget.setGeometry(mouse_pos.x(),mouse_pos.y(),300,200)
+        #self.peek_memories_widget.setParent(self)
+        self.peek_memories_widget.show()
+
+    def add_memory(self):
+        if self.add_memory_widget is not None:
+            self.add_memory_widget.close()
+        self.add_memory_widget = AddMemoryWidget(self.video_info["video_id"],self.settings)
+        mouse_pos = QCursor.pos()
+        self.add_memory_widget.setGeometry(mouse_pos.x(),mouse_pos.y(),300,100)
+        #self.add_memory_widget.setParent(self)
+        self.add_memory_widget.show()
 
 class DateSelector(QWidget):
     def __init__(self,additional_text=""):
@@ -493,6 +665,7 @@ if __name__ == "__main__":
 
     app_close_event = asyncio.Event()
     app.aboutToQuit.connect(app_close_event.set)
+
     
     # Create the main window
     window=DatabaseSearchWindow()
