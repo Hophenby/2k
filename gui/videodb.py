@@ -6,7 +6,7 @@ import time, datetime
 from qasync import QEventLoop, asyncClose, asyncSlot
 import threading
 from PySide6.QtCore import QEvent, Qt, QTimer, QMimeData, QByteArray, QBuffer, QIODevice
-from PySide6.QtGui import QMouseEvent, QPaintEvent, QPixmap, QClipboard, QTextDocument, QDesktopServices, QPainter, QColor, QBrush, QCursor
+from PySide6.QtGui import QCloseEvent, QMouseEvent, QPaintEvent, QPixmap, QClipboard, QTextDocument, QDesktopServices, QPainter, QColor, QBrush, QCursor
 from PySide6.QtWidgets import (
     QApplication, 
     QMainWindow, 
@@ -26,9 +26,11 @@ from PySide6.QtWidgets import (
     QTextEdit,
     )
 import requests
+from webfetch import VideoInfo
 
 
 DATABASE = 'test1.db'
+
 
 def create_table(database=None):
     if database is None:
@@ -42,61 +44,93 @@ def create_table(database=None):
     c.execute('''CREATE TABLE IF NOT EXISTS tags
                  (video_id text, tag text, primary key(video_id, tag))''')
     c.execute('''CREATE TABLE IF NOT EXISTS memories
-                 (video_id text primary key, memory text, timestamp integer)''')
+                 (video_id text, memory text, timestamp integer,primary key(video_id, timestamp))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS upload_history
+                 (user_id text, video_id text, upload_time integer, primary key(user_id, video_id))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS subscribed_users
+                 (user_id text primary key,last_check_time integer)''')
     conn.commit()
     conn.close()
 
-def insert_video_info(video_info,database=None):
-    if video_info is None:
-        return
-    if database is None:
-        database = DATABASE
-    if not os.path.exists(database):
-        create_table(database)
-    conn = sqlite3.connect(database)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO videos VALUES (:video_id, :title, :thumbnail_url, :upload_year, :upload_month, :upload_day, :upload_hour, :upload_minute, :upload_second, :view_count, :mylist_count, :description, :user_name, :user_id)", video_info)
+def results_to_info(results,cursor=None):
+    results_new=[]
+    for video_info in results:
+        keys=["video_id","title","thumbnail_url","upload_year","upload_month","upload_day","upload_hour","upload_minute","upload_second","view_count","mylist_count","description","user_name","user_id"]
+        video_info=dict(zip(keys,video_info))
+        tags = cursor.execute(f"""SELECT tag FROM tags WHERE video_id = "{video_info['video_id']}" """).fetchall()
+        video_info["tags"]=[tag[0] for tag in tags]
+        results_new.append(VideoInfo.from_dict(video_info))
+    return (results_new)
+
+def db_execute(slot=None):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            database = kwargs.get('database', None)
+            if database is None:
+                database = DATABASE
+            if not os.path.exists(database):
+                create_table(database)
+            conn = sqlite3.connect(database)
+            cursor = conn.cursor()
+            kwargs['cursor'] = cursor
+            print(f"executing {func.__name__}")
+            try:
+                result = func(*args, **kwargs)
+                conn.commit()
+            except Exception as e:
+                print(f"error occured while executing {func.__name__}")
+                print(f"{e.__class__.__name__}: {e}")
+                result = None
+            finally:
+                cursor.close()
+                conn.close()
+            if slot is not None:
+                slot(result,cursor=cursor)
+            return result
+        return wrapper
+    return decorator
+
+@db_execute()
+def insert_video_info(video_info, database=None,cursor=None):
+    cursor.execute("INSERT OR REPLACE INTO videos VALUES (:video_id, :title, :thumbnail_url, :upload_year, :upload_month, :upload_day, :upload_hour, :upload_minute, :upload_second, :view_count, :mylist_count, :description, :user_name, :user_id)", video_info.to_dict())
     for tag in video_info["tags"]:
-        c.execute("INSERT OR REPLACE INTO tags VALUES (?, ?)", (video_info["video_id"], tag))
-    conn.commit()
-    conn.close()
+        cursor.execute("INSERT OR REPLACE INTO tags VALUES (?, ?)", (video_info["video_id"], tag))
 
-def del_video_info(video_id,database=None):
-    if database is None:
-        database = DATABASE
-    if not os.path.exists(database):
-        create_table(database)
-    conn = sqlite3.connect(database)
-    c = conn.cursor()
-    c.execute("DELETE FROM videos WHERE video_id = ?", (video_id,))
-    c.execute("DELETE FROM tags WHERE video_id = ?", (video_id,))
-    c.execute("DELETE FROM memories WHERE video_id = ?", (video_id,))
-    conn.commit()
-    conn.close()
+@db_execute()
+def del_video_info(video_id, database=None,cursor=None):
+    cursor.execute("DELETE FROM videos WHERE video_id = ?", (video_id,))
+    cursor.execute("DELETE FROM tags WHERE video_id = ?", (video_id,))
+    cursor.execute("DELETE FROM memories WHERE video_id = ?", (video_id,))
 
-
-def add_video_memories(video_id,memories,database=None):
-    if database is None:
-        database = DATABASE
-    if not os.path.exists(database):
-        create_table(database)
-    conn = sqlite3.connect(database)
-    c = conn.cursor()
+@db_execute()
+def add_video_memories(video_id,memories,database=None,cursor=None):
     for memory in memories:
-        c.execute("INSERT OR REPLACE INTO memories VALUES (?, ?, ?)", (video_id, memory["memory"], memory["timestamp"]))
-    conn.commit()
-    conn.close()
+        cursor.execute("INSERT OR REPLACE INTO memories VALUES (?, ?, ?)", (video_id, memory["memory"], memory["timestamp"]))
 
-def del_video_memories_by_timestamp(video_id,timestamp,database=None):
-    if database is None:
-        database = DATABASE
-    if not os.path.exists(database):
-        create_table(database)
-    conn = sqlite3.connect(database)
-    c = conn.cursor()
-    c.execute("DELETE FROM memories WHERE video_id = ? AND timestamp = ?", (video_id, timestamp))
-    conn.commit()
-    conn.close()
+@db_execute()
+def del_video_memories_by_timestamp(video_id,timestamp,database=None,cursor=None):
+    cursor.execute("DELETE FROM memories WHERE video_id = ? AND timestamp = ?", (video_id, timestamp))
+
+@db_execute()
+def is_uploader_subscribed(user_id, database=None,cursor=None):
+    return cursor.execute("SELECT * FROM subscribed_users WHERE user_id = ?", (user_id,)).fetchone() is not None
+
+@db_execute()
+def get_last_check_time_from_user_id(user_id, database=None,cursor=None):
+    return cursor.execute("SELECT last_check_time FROM subscribed_users WHERE user_id = ?", (user_id,)).fetchone()
+
+@db_execute()
+def subscribe_or_desub_uploader(user_id, database=None,cursor=None):
+    if cursor.execute("SELECT * FROM subscribed_users WHERE user_id = ?", (user_id,)).fetchone() is not None:
+        cursor.execute("DELETE FROM subscribed_users WHERE user_id = ?", (user_id,))
+    else:
+        now = int(datetime.datetime.now().timestamp())
+        cursor.execute("INSERT OR REPLACE INTO subscribed_users VALUES (?, ?)", (user_id, now))
+
+@db_execute(slot=results_to_info)
+def get_saved_video_info_from_user_id(user_id, database=None,cursor=None):
+    return cursor.execute("SELECT * FROM videos WHERE user_id = ?", (user_id,)).fetchall()
+
 
 def gen_img_html(img:QPixmap):
     byte_array = QByteArray()
@@ -114,7 +148,7 @@ class PeekMemoriesWidget(QScrollArea):
 
         self.memories = []
         self.load_memories()
-        print(self.memories)
+        #print(self.memories)
 
         self.layout_v = QVBoxLayout()
 
@@ -223,9 +257,35 @@ class ThumbnailLabel(QLabel):
             #pixmap = QPixmap.fromImage(self.thumbnail)
             img_element = gen_img_html(self.thumbnail)
             QToolTip.showText(event.globalPos(), img_element)
+
+class UploaderAndTimeLabel(QLabel):
+    def __init__(self, parent=None,video_info=None,settings=None):
+        self.database=settings["database_path"]
+        self.video_info = video_info
+        self.uploader_name = video_info["user_name"]
+        self.is_subscribed = is_uploader_subscribed(video_info["user_id"],database=self.database)
+        super().__init__(parent)    
+
+        self.setText(f"Uploader: {self.uploader_name}   ||  Time: {video_info['upload_year']}-{video_info['upload_month']}-{video_info['upload_day']} {video_info['upload_hour']:02}:{video_info['upload_minute']:02}:{video_info['upload_second']:02}")
+        if self.is_subscribed:
+            self.setText(f"Uploader: {self.uploader_name} [√]||  Time: {video_info['upload_year']}-{video_info['upload_month']}-{video_info['upload_day']} {video_info['upload_hour']:02}:{video_info['upload_minute']:02}:{video_info['upload_second']:02}   ||   Subscribed")
+
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        video_info=self.video_info
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.is_subscribed:
+                self.setText(f"Uploader: {self.uploader_name}   ||  Time: {video_info['upload_year']}-{video_info['upload_month']}-{video_info['upload_day']} {video_info['upload_hour']:02}:{video_info['upload_minute']:02}:{video_info['upload_second']:02}")
+                self.is_subscribed = False
+            else:
+                self.setText(f"Uploader: {self.uploader_name} [√]||  Time: {video_info['upload_year']}-{video_info['upload_month']}-{video_info['upload_day']} {video_info['upload_hour']:02}:{video_info['upload_minute']:02}:{video_info['upload_second']:02}   ||   Subscribed")
+                self.is_subscribed = True
+            subscribe_or_desub_uploader(video_info["user_id"],database=self.database)
+        
             
 class SearchResultWidget(QWidget):
-    def __init__(self,video_info:dict,settings=None):
+    def __init__(self,video_info:VideoInfo,settings=None,additional_buttons=[]):
         super().__init__()
 
         #self.hide()
@@ -261,9 +321,8 @@ class SearchResultWidget(QWidget):
         self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.scroll_area.setFixedHeight(100)
 
-        self.uploader_and_time_label = QLabel(f"Uploader: {video_info['user_name']}   ||  Time: {video_info['upload_year']}-{video_info['upload_month']}-{video_info['upload_day']} {video_info['upload_hour']:02}:{video_info['upload_minute']:02}:{video_info['upload_second']:02}")
+        self.uploader_and_time_label = UploaderAndTimeLabel(video_info=video_info,settings=settings)
         self.uploader_and_time_label.setObjectName("uploader_and_time_label")
-        self.uploader_and_time_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         
         self.tags_label = QLabel(f"Tags: {'    '.join(video_info['tags'])}")
         self.tags_label.setObjectName("tags_label")
@@ -315,6 +374,10 @@ class SearchResultWidget(QWidget):
         button_layout.addWidget(self.open_uploader_button)
         button_layout.addWidget(self.peeks_memories_button)
         button_layout.addWidget(self.add_memory_button)
+
+        for button in additional_buttons:
+            button_layout.addWidget(button)
+
         button_layout.addSpacerItem(QSpacerItem(24,0,QSizePolicy.Policy.Fixed,QSizePolicy.Policy.Expanding))
 
         del_layout = QHBoxLayout()
@@ -405,6 +468,13 @@ class SearchResultWidget(QWidget):
         self.add_memory_widget.setGeometry(mouse_pos.x(),mouse_pos.y(),300,100)
         #self.add_memory_widget.setParent(self)
         self.add_memory_widget.show()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.peek_memories_widget is not None:
+            self.peek_memories_widget.close()
+        if self.add_memory_widget is not None:
+            self.add_memory_widget.close()
+        return super().closeEvent(event)
 
 class DateSelector(QWidget):
     def __init__(self,additional_text=""):
@@ -506,11 +576,6 @@ class UploadDateFilter(QWidget):
             return None
 
 
-        
-
-
-        
-
 class DatabaseSearchWindow(QMainWindow):
     def __init__(self,settings=None):
         super().__init__()
@@ -586,7 +651,7 @@ class DatabaseSearchWindow(QMainWindow):
             def search_thread():
                 
                 # Connect to SQLite database
-                conn = sqlite3.connect("videos.db")
+                conn = sqlite3.connect(self.settings["database_path"])
                 cursor = conn.cursor()
                 try:
                     results=[]
@@ -617,13 +682,7 @@ class DatabaseSearchWindow(QMainWindow):
                         results=cursor.execute(f"SELECT * FROM videos WHERE {command}").fetchall()
 
 
-                    results_new=[]
-                    for video_info in results:
-                        keys=["video_id","title","thumbnail_url","upload_year","upload_month","upload_day","upload_hour","upload_minute","upload_second","view_count","mylist_count","description","user_name","user_id"]
-                        video_info=dict(zip(keys,video_info))
-                        tags = cursor.execute(f"""SELECT tag FROM tags WHERE video_id = "{video_info['video_id']}" """).fetchall()
-                        video_info["tags"]=[tag[0] for tag in tags]
-                        results_new.append(video_info)
+                    results_new=results_to_info(results,cursor)
                 except Exception as e:
                     print(e)
                     raise e

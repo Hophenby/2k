@@ -1,4 +1,4 @@
-import re
+import re, datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.proxy import Proxy, ProxyType
@@ -10,8 +10,51 @@ from webdriver_manager.firefox import GeckoDriverManager
 
 PROXY_HOST = "http://localhost:7890"
 
+class VideoInfo:
+    def __init__(self, video_id, title, thumbnail_url, upload_year, upload_month, upload_day, upload_hour, upload_minute, upload_second, view_count, mylist_count, description, tags, user_name, user_id):
+        self.video_id = video_id
+        self.title = title
+        self.thumbnail_url = thumbnail_url
+        self.upload_year = upload_year
+        self.upload_month = upload_month
+        self.upload_day = upload_day
+        self.upload_hour = upload_hour
+        self.upload_minute = upload_minute
+        self.upload_second = upload_second
+        self.view_count = view_count
+        self.mylist_count = mylist_count
+        self.description = description
+        self.tags = tags
+        self.user_name = user_name
+        self.user_id = user_id
 
-def get_video_info(video_id,driver:webdriver.Chrome,proxy=None):
+    @classmethod
+    def from_dict(cls, video_dict):
+        return cls(video_dict["video_id"], video_dict["title"], video_dict["thumbnail_url"], video_dict["upload_year"], video_dict["upload_month"], video_dict["upload_day"], video_dict["upload_hour"], video_dict["upload_minute"], video_dict["upload_second"], video_dict["view_count"], video_dict["mylist_count"], video_dict["description"], video_dict["tags"], video_dict["user_name"], video_dict["user_id"])
+    
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def to_dict(self):
+        return {
+            "video_id": self.video_id,
+            "title": self.title,
+            "thumbnail_url": self.thumbnail_url,
+            "upload_year": self.upload_year,
+            "upload_month": self.upload_month,
+            "upload_day": self.upload_day,
+            "upload_hour": self.upload_hour,
+            "upload_minute": self.upload_minute,
+            "upload_second": self.upload_second,
+            "view_count": self.view_count,
+            "mylist_count": self.mylist_count,
+            "description": self.description,
+            "tags": self.tags,
+            "user_name": self.user_name,
+            "user_id": self.user_id
+        }
+
+def get_video_info(video_id,driver:webdriver.Chrome):
     video_info={}
     try:
         #print(f"processing video {video_id}")
@@ -90,7 +133,36 @@ def get_video_info(video_id,driver:webdriver.Chrome,proxy=None):
         driver.quit()'''
 
 
-    return video_info
+    return VideoInfo.from_dict(video_info)
+
+
+def get_user_page_video(user_id,driver:webdriver.Chrome):
+    video_ids=[]
+    try:
+        driver.get(f"https://www.nicovideo.jp/user/{user_id}/video")
+        nickname_element = driver.find_element(By.XPATH, '//h3[@class="UserDetailsHeader-nickname"]')
+        nickname = nickname_element.text
+        video_elements = driver.find_elements(By.XPATH, "//div[@data-video-thumbnail-comment-hover='true' and contains(@class, 'NC-MediaObject')]")
+        for video_element in video_elements:
+            id_element = video_element.find_element(By.CLASS_NAME, "NC-Link")
+            video_id = re.search(r"sm\d{6,9}", str(id_element.get_attribute("href"))).group()
+
+            title_element = video_element.find_element(By.CLASS_NAME, "NC-MediaObjectTitle").text
+
+            registered_at = video_element.find_element(By.CLASS_NAME, "NC-VideoRegisteredAtText-text").text
+            registered_at = re.match(r"(\d{4})/(\d{1,2})/(\d{1,2}) (\d{1,2}):(\d{2})", registered_at).groups()
+
+            timestamp = datetime.datetime(int(registered_at[0]), int(registered_at[1]), int(registered_at[2]), int(registered_at[3]), int(registered_at[4])).timestamp()
+            timestamp = int(timestamp)
+
+            video_ids.append({"video_id": video_id, "timestamp": timestamp, "title": title_element})
+    except Exception as e:
+        print(f"error occured while processing user {user_id}")
+        print(f"{e.__class__.__name__}: {e}")
+        video_ids=None
+        nickname=None
+        
+    return nickname,video_ids
 
 
 def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
@@ -101,7 +173,6 @@ def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
     if proxy_mode:
         proxy.proxy_type=ProxyType.MANUAL
         proxy.http_proxy=f"{proxy_server}"
-        #options=ChromeOptions()
         options.add_argument("--proxy-server={}".format(f"{proxy_server}"))
     #driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
     #driver = webdriver.Firefox(options=options,service=FirefoxService(executable_path=GeckoDriverManager().install()))
@@ -110,13 +181,47 @@ def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
 
         videos_info=[]
         for video_id in video_ids:
-            video_info=get_video_info(video_id,driver,proxy)
-            if video_info:
-                videos_info.append(video_info)
+            try:
+                video_info=get_video_info(video_id,driver)
+                if video_info:
+                    videos_info.append(video_info)
+            except Exception as e:
+                print(f"error occured while processing video {video_id}")
+                print(f"{e.__class__.__name__}: {e}")
     finally:
         driver.quit()
 
 
     return videos_info
 
-#print(get_videos_info(["sm34711325"],True,"http://localhost",7890))
+def get_users_videos(user_ids,proxy_mode=False,proxy_server=None):
+    #options=EdgeOptions()
+    #options=FirefoxOptions()
+    options=ChromeOptions()
+    proxy=Proxy()
+    if proxy_mode:
+        proxy.proxy_type=ProxyType.MANUAL
+        proxy.http_proxy=f"{proxy_server}"
+        options.add_argument("--proxy-server={}".format(f"{proxy_server}"))
+    #driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
+    #driver = webdriver.Firefox(options=options,service=FirefoxService(executable_path=GeckoDriverManager().install()))
+    driver = webdriver.Chrome(options=options,service=ChromeService(executable_path=ChromeDriverManager().install()))
+    try:
+
+        users_videos=[]
+        for user_id in user_ids:
+            user_videos={}
+            user_name,video_ids=get_user_page_video(user_id,driver)
+            if video_ids:
+                user_videos["user_name"]=user_name
+                user_videos["video_ids"]=video_ids
+                user_videos["user_id"]=user_id
+                users_videos.append(user_videos)
+    finally:
+        driver.quit()
+
+
+    return users_videos
+
+#print(get_videos_info(["sm34711325"],True,"http://localhost:7890"))
+#print(get_users_videos(["66296951"],True,"http://localhost:7890"))

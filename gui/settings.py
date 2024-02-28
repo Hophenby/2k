@@ -9,6 +9,7 @@ class Settings:
             'proxy_enabled': False,
             'proxy': '',
             'database_path': '1.db',
+            "check_video_while_start": False,
         }
 
     def __getitem__(self, key):
@@ -54,6 +55,7 @@ class SettingsWindow(QWidget):
                 settingswidget = QCheckBox(option)
                 settingswidget.setChecked(value)
                 sublayout.addWidget(settingswidget)
+            
             else:
                 settingswidget = QLineEdit(value)
                 optionlabel = QLabel(option)
