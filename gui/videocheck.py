@@ -20,9 +20,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction
 from PySide6.QtCore import QTimer
 
-from webfetch import get_users_videos, get_videos_info
+from webutils.webfetch import get_users_videos, get_videos_info
 from settings import Settings
-from videodb import db_execute,SearchResultWidget,insert_video_info,get_last_check_time_from_user_id,subscribe_or_desub_uploader
+from videodb import db_execute,insert_video_info,get_last_check_time_from_user_id,subscribe_or_desub_uploader
+from searching import SearchResultWidget
 
 class NoticeMenu(QMenu):
     def __init__(self, parent=None, settings:Settings=None,display_area:QScrollArea=None):
@@ -34,6 +35,9 @@ class NoticeMenu(QMenu):
         self.addSeparator()
         self.display_area = display_area
         self.videoMenus=[]
+
+        if self.settings['check_video_while_start']:
+            QTimer.singleShot(0, self.check_for_new_videos)
 
     @asyncSlot()
     async def check_for_new_videos(self):
@@ -68,7 +72,7 @@ class NoticeMenu(QMenu):
                         last_video_time = get_last_check_time_from_user_id(database=database,user_id=user_id)
                         new_videos = [video_id for video_id in video_ids if video_id["timestamp"] > last_video_time[0]]
                         if len(new_videos) > 0:
-                            info_list = await eventloop.run_in_executor(None,get_videos_info,[video_id["video_id"] for video_id in video_ids], self.settings['proxy_enabled'], self.settings['proxy'])
+                            info_list = await eventloop.run_in_executor(None,get_videos_info,[video_id["video_id"] for video_id in new_videos], self.settings['proxy_enabled'], self.settings['proxy'])
                             if info_list is not None:
                                 self.videoMenus.append(VideoMenu(user_name,info_list, parent=self, settings=self.settings,display_area=self.display_area))
                                 self.addMenu(self.videoMenus[-1])

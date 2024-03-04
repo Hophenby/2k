@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtCore import QByteArray, QTimer
 from qasync import QEventLoop, asyncClose, asyncSlot
-import webfetch,settings,videodb as videodb
+import webutils.webfetch as webfetch,settings,videodb as videodb
+from searching import SearchResultWidget, DatabaseSearchWindow
 import videocheck 
 
 
@@ -96,7 +97,7 @@ class MainWindow(QMainWindow):
         print("database")
         if self.database_window is not None:
             self.database_window.close()
-        self.database_window = videodb.DatabaseSearchWindow(settings=self.pf_settings)
+        self.database_window = DatabaseSearchWindow(settings=self.pf_settings)
         self.database_window.show()
         pass
         
@@ -122,7 +123,7 @@ class MainWindow(QMainWindow):
             for info in info_list:
                 insert_button = QPushButton("Insert to database")
                 insert_button.clicked.connect(lambda: videodb.insert_video_info(info,database=self.pf_settings["database_path"]))
-                self.search_result_widget = videodb.SearchResultWidget(info,self.pf_settings,additional_buttons=[insert_button])
+                self.search_result_widget = SearchResultWidget(info,self.pf_settings,additional_buttons=[insert_button])
                 self.scroll_widget_layout.addWidget(self.search_result_widget)
                 
                 
