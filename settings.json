@@ -1,0 +1,1 @@
+{"proxy_enabled": true, "proxy": "http://localhost:7890", "database_path": "videos.db", "check_video_while_start": false}

@@ -4,7 +4,7 @@ import asyncio
 import time, datetime
 from qasync import QEventLoop, asyncClose, asyncSlot
 import threading
-from PySide6.QtCore import QEvent, Qt, QTimer, QMimeData, QByteArray, QBuffer, QIODevice
+from PySide6.QtCore import QEvent, Qt, QTimer, QMimeData, QByteArray, QBuffer, QIODevice, Signal
 from PySide6.QtGui import QCloseEvent, QMouseEvent, QPaintEvent, QPixmap, QClipboard, QTextDocument, QDesktopServices, QPainter, QColor, QBrush, QCursor
 from PySide6.QtWidgets import (
     QApplication, 
@@ -136,6 +136,7 @@ class AddMemoryWidget(QWidget):
 
 
 class ThumbnailLabel(QLabel):
+    load = Signal()
     def __init__(self, parent=None):
         super().__init__(parent)
         self.thumbnail = None
@@ -149,6 +150,9 @@ class ThumbnailLabel(QLabel):
             #pixmap = QPixmap.fromImage(self.thumbnail)
             img_element = gen_img_html(self.thumbnail)
             QToolTip.showText(event.globalPos(), img_element)
+        else:
+            self.load.emit()
+
 
 class UploaderAndTimeLabel(QLabel):
     def __init__(self, parent=None,video_info=None,settings=None):
@@ -315,14 +319,29 @@ class SearchResultWidget(QWidget):
         return super().paintEvent(event)
 
     def load_thumbnail(self):
-        if self.settings is not None and self.settings.settings['proxy_enabled']:
+        max_retry = 5
+        """if self.settings is not None and self.settings.settings['proxy_enabled']:
             image_data = requests.get(self.video_info["thumbnail_url"]+".L", proxies={"http": self.settings.settings['proxy'], "https": self.settings.settings['proxy']})
         else:
             image_data = requests.get(self.video_info["thumbnail_url"]+".L")
         if image_data.status_code == 200:
             self.thumbnail.loadFromData(image_data.content)
             self.thumbnail_label.setThumbnail(self.thumbnail)
-            #self.show()
+            #self.show()"""
+        while max_retry > 0:
+            try:
+                if self.settings is not None and self.settings.settings['proxy_enabled']:
+                    image_data = requests.get(self.video_info["thumbnail_url"]+".L", proxies={"http": self.settings.settings['proxy'], "https": self.settings.settings['proxy']})
+                else:
+                    image_data = requests.get(self.video_info["thumbnail_url"]+".L")
+                if image_data.status_code == 200:
+                    self.thumbnail.loadFromData(image_data.content)
+                    self.thumbnail_label.setThumbnail(self.thumbnail)
+                    break
+            except Exception as e:
+                print(e)
+            max_retry -= 1
+        print("max retry exceeded")
 
     def copy_info(self):
         #copy the video_id then the thumbnail then the title to the clipboard

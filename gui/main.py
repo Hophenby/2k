@@ -120,9 +120,11 @@ class MainWindow(QMainWindow):
             video_ids = re.findall(r"(?:sm\d{6,9}|so\d{6,9})", self.edit_url.text())
             loop=asyncio.get_event_loop()
             info_list=await loop.run_in_executor(None,webfetch.get_videos_info,video_ids,self.pf_settings["proxy_enabled"],self.pf_settings["proxy"])
-            for info in info_list:
+            self.lbl_status.setText(f"Fetching... ({len(video_ids)})")
+            for n,info in enumerate(info_list):
                 insert_button = QPushButton("Insert to database")
                 insert_button.clicked.connect(lambda: videodb.insert_video_info(info,database=self.pf_settings["database_path"]))
+                #self.lbl_status.setText(f"Fetching... ")
                 self.search_result_widget = SearchResultWidget(info,self.pf_settings,additional_buttons=[insert_button])
                 self.scroll_widget_layout.addWidget(self.search_result_widget)
                 
@@ -131,7 +133,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.lbl_status.setText(f"{exc.__class__.__name__}: {exc}")
         else:
-            self.lbl_status.setText("Finished!")
+            self.lbl_status.setText(f"Finished!({len(info_list)}/{len(video_ids)})")
         finally:
             self.btn_fetch.setEnabled(True)
 

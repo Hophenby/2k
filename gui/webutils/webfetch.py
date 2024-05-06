@@ -166,17 +166,18 @@ def get_user_page_video(user_id,driver:webdriver.Chrome):
 
 
 def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
-    #options=EdgeOptions()
+    options=EdgeOptions()
     #options=FirefoxOptions()
-    options=ChromeOptions()
+    #options=ChromeOptions()
+    options.add_argument("--headless")
     proxy=Proxy()
     if proxy_mode:
         proxy.proxy_type=ProxyType.MANUAL
         proxy.http_proxy=f"{proxy_server}"
         options.add_argument("--proxy-server={}".format(f"{proxy_server}"))
-    #driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
+    driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
     #driver = webdriver.Firefox(options=options,service=FirefoxService(executable_path=GeckoDriverManager().install()))
-    driver = webdriver.Chrome(options=options,service=ChromeService(executable_path=ChromeDriverManager().install()))
+    #driver = webdriver.Chrome(options=options,service=ChromeService(executable_path=ChromeDriverManager().install()))
     try:
 
         videos_info=[]
@@ -195,17 +196,18 @@ def get_videos_info(video_ids,proxy_mode=False,proxy_server=None):
     return videos_info
 
 def get_users_videos(user_ids,proxy_mode=False,proxy_server=None):
-    #options=EdgeOptions()
+    options=EdgeOptions()
     #options=FirefoxOptions()
-    options=ChromeOptions()
+    #options=ChromeOptions()
+    options.add_argument("--headless")
     proxy=Proxy()
     if proxy_mode:
         proxy.proxy_type=ProxyType.MANUAL
         proxy.http_proxy=f"{proxy_server}"
         options.add_argument("--proxy-server={}".format(f"{proxy_server}"))
-    #driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
+    driver = webdriver.Edge(options=options,service=EdgeService(executable_path=EdgeChromiumDriverManager().install()))
     #driver = webdriver.Firefox(options=options,service=FirefoxService(executable_path=GeckoDriverManager().install()))
-    driver = webdriver.Chrome(options=options,service=ChromeService(executable_path=ChromeDriverManager().install()))
+    #driver = webdriver.Chrome(options=options,service=ChromeService(executable_path=ChromeDriverManager().install()))
     try:
 
         users_videos=[]
@@ -223,5 +225,6 @@ def get_users_videos(user_ids,proxy_mode=False,proxy_server=None):
 
     return users_videos
 
-#print(get_videos_info(["sm34711325"],True,"http://localhost:7890"))
-#print(get_users_videos(["66296951"],True,"http://localhost:7890"))
+if __name__ == "__main__":
+    print(get_videos_info(["sm34711325"],True,"http://localhost:7890"))
+    print(get_users_videos(["66296951"],True,"http://localhost:7890"))
